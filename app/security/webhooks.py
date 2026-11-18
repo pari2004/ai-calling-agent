@@ -29,3 +29,13 @@ def verify_twilio(url: str, params: dict[str, str], signature: str,
         return False
     expected = twilio_signature(url, params, auth_token)
     return hmac.compare_digest(expected, signature)
+
+
+def verify_exotel(token: str, secret: str | None = None) -> bool:
+    """Exotel doesn't sign webhook requests the way Twilio does, so we protect
+    our own answer/gather/status callback URLs with a `?sig=` shared secret
+    instead. If no secret is configured, verification is a no-op (dev mode)."""
+    expected = secret if secret is not None else settings.exotel_webhook_secret
+    if not expected:
+        return True
+    return hmac.compare_digest(expected, token or "")

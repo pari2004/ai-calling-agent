@@ -120,6 +120,83 @@ def test_mulaw_decode_roundtrip():
     assert frame_rms(decoded) > 0
 
 
+def test_exotel_voice_local_fallback_when_unconfigured():
+    from app.telephony.exotel_voice import ExotelVoice
+    v = ExotelVoice()
+    v.sid = ""  # force unconfigured
+    res = v.dial("+919999999999", "call_x")
+    assert res["provider"] == "local" and res["status"] == "ringing"
+
+
+def test_exotel_dial_uses_real_api_when_configured(monkeypatch):
+    from app import config as cfg
+    from app.telephony.exotel_voice import ExotelVoice
+    cfg.settings.public_base_url = "https://api.example.com"
+    v = ExotelVoice()
+    v.sid, v.api_key, v.api_token, v.caller_id = "SID_test", "key", "tok", "+911111111111"
+    captured = {}
+
+    def fake_urlopen(req, timeout=20):
+        captured["url"] = req.full_url
+        captured["body"] = req.data.decode()
+        return io.BytesIO(json.dumps({"Call": {"Sid": "EX_new", "Status": "queued"}}).encode())
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    res = v.dial("+919999999999", "call_9")
+    assert res["provider"] == "exotel" and res["provider_call_id"] == "EX_new"
+    assert "Calls/connect.json" in captured["url"]
+    assert "From=%2B919999999999" in captured["body"]
+    cfg.settings.public_base_url = ""
+
+
+def test_exotel_dial_fails_without_public_base_url():
+    from app.telephony.exotel_voice import ExotelVoice
+    v = ExotelVoice()
+    v.sid, v.api_key, v.api_token, v.caller_id = "SID_test", "key", "tok", "+911111111111"
+    res = v.dial("+919999999999", "call_9")
+    assert res["provider"] == "exotel" and res["status"] == "failed"
+
+
+def test_answer_exoml_gather():
+    from app import config as cfg
+    from app.telephony import exotel_voice
+    cfg.settings.public_base_url = "https://api.example.com"
+    xml = exotel_voice.answer_exoml(opening_line="Hi there", call_id="call_1")
+    assert "<Gather" in xml and "Hi there" in xml and "/v1/telephony/exotel/gather/call_1" in xml
+    cfg.settings.public_base_url = ""
+
+
+def test_exotel_webhook_secret_roundtrip():
+    from app.security.webhooks import verify_exotel
+    assert verify_exotel("anything")  # no secret configured -> no-op
+    assert verify_exotel("s3cret", secret="s3cret")
+    assert not verify_exotel("wrong", secret="s3cret")
+
+
+def test_exotel_status_webhook_requires_signature():
+    import importlib
+    import os
+    os.environ["DATABASE_URL"] = "sqlite:////tmp/highh_wh_test_exotel.db"
+    if os.path.exists("/tmp/highh_wh_test_exotel.db"):
+        os.remove("/tmp/highh_wh_test_exotel.db")
+    import app.config as config
+    s = config.settings
+    s.database_url = os.environ["DATABASE_URL"]
+    s.auth_enabled = False
+    s.rate_limit_enabled = False
+    s.exotel_webhook_secret = "es"
+    import app.main as main
+    importlib.reload(main)
+    from fastapi.testclient import TestClient
+    with TestClient(main.app) as c:
+        params = {"CallSid": "EX1", "Status": "completed"}
+        assert c.post("/v1/telephony/exotel/status", data=params).status_code == 403
+        ok = c.post("/v1/telephony/exotel/status?sig=es", data=params)
+        assert ok.status_code == 200 and ok.json()["ok"] is True
+    s.exotel_webhook_secret = ""
+    os.environ.pop("DATABASE_URL", None)
+
+
 def test_twilio_status_webhook_requires_signature():
     import importlib
     import os

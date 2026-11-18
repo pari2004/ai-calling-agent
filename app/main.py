@@ -70,11 +70,13 @@ app = FastAPI(title=settings.app_name, version="1.0.0")
 # dependency returns a dev principal, so local/dev/tests are unaffected.
 app.include_router(extensions_router, dependencies=[Depends(get_principal)])
 
-# Twilio webhooks authenticate via request signature, not our API key, so they
-# are mounted WITHOUT the bearer-auth dependency.
+# Twilio/Exotel webhooks authenticate via request signature/shared secret, not
+# our API key, so they are mounted WITHOUT the bearer-auth dependency.
+from .routers.telephony_webhooks import exotel_router  # noqa: E402
 from .routers.telephony_webhooks import router as twilio_router  # noqa: E402
 
 app.include_router(twilio_router)
+app.include_router(exotel_router)
 
 error_handlers.register(app)
 app.add_middleware(RequestContextMiddleware)

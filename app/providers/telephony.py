@@ -22,6 +22,11 @@ class TelephonyProvider:
                 return self._twilio(to_number, answer_url)
             except Exception as exc:
                 return {"provider": "twilio", "status": "failed", "error": str(exc)}
+        if self.provider == "exotel" and settings.exotel_sid:
+            try:
+                return self._exotel(to_number, answer_url)
+            except Exception as exc:
+                return {"provider": "exotel", "status": "failed", "error": str(exc)}
         return {"provider": "local", "status": "ringing",
                 "provider_call_id": f"sim_{uuid.uuid4().hex[:10]}", "to": to_number}
 
@@ -39,3 +44,19 @@ class TelephonyProvider:
             data = json.loads(resp.read().decode())
         return {"provider": "twilio", "status": data.get("status", "queued"),
                 "provider_call_id": data.get("sid", ""), "to": to_number}
+
+    def _exotel(self, to_number: str, answer_url: str) -> dict:
+        sid, key, token = settings.exotel_sid, settings.exotel_api_key, settings.exotel_api_token
+        url = f"https://{settings.exotel_subdomain}/v1/Accounts/{sid}/Calls/connect.json"
+        form = urllib.parse.urlencode({
+            "From": to_number, "CallerId": settings.exotel_caller_id,
+            "Url": answer_url or "",
+        }).encode()
+        auth = base64.b64encode(f"{key}:{token}".encode()).decode()
+        req = urllib.request.Request(url, data=form,
+                                     headers={"Authorization": f"Basic {auth}"})
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            data = json.loads(resp.read().decode())
+        call = data.get("Call", data)
+        return {"provider": "exotel", "status": call.get("Status", "queued"),
+                "provider_call_id": call.get("Sid", ""), "to": to_number}

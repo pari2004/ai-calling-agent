@@ -55,6 +55,8 @@ class NumberService:
         self.pools: dict[str, NumberPool] = {}
         if settings.twilio_from_number:
             self.provision(settings.twilio_from_number, provider="twilio")
+        if settings.exotel_caller_id:
+            self.provision(settings.exotel_caller_id, provider="exotel")
 
     def provision(self, e164: str, provider: str = "local",
                   capabilities: tuple[str, ...] = ("voice", "sms")) -> PhoneNumber:

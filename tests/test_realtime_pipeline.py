@@ -54,7 +54,7 @@ def test_full_duplex_loop_produces_outbound_media():
         await p.drain()
         return p, sent
 
-    p, sent = asyncio.get_event_loop().run_until_complete(run())
+    p, sent = asyncio.run(run())
     # transcript reached the LLM
     assert calls["text"] == "i want an ai job"
     # agent audio streamed back to Twilio as media frames with the right stream sid
@@ -86,7 +86,7 @@ def test_barge_in_sends_clear_and_stops_speaking():
         await p.drain()
         return p, sent, frames_before
 
-    p, sent, before = asyncio.get_event_loop().run_until_complete(run())
+    p, sent, before = asyncio.run(run())
     assert p.metrics.barge_ins >= 1
     assert any(f.get("event") == "clear" and f["streamSid"] == "MZ2" for f in sent)
     assert p.speaking is False
@@ -108,7 +108,7 @@ def test_stop_event_flushes_final_transcript():
         await p.drain()
         return p, sent
 
-    p, sent = asyncio.get_event_loop().run_until_complete(run())
+    p, sent = asyncio.run(run())
     assert seen.get("text") == "i want an ai job"
     assert any(f.get("event") == "media" for f in sent)
 

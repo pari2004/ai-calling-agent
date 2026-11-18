@@ -24,10 +24,23 @@ class Settings:
     tts_provider: str = _env("TTS_PROVIDER", "local")  # local | elevenlabs
     tts_api_key: str = _env("TTS_API_KEY", "")
     tts_voice_id: str = _env("TTS_VOICE_ID", "")
-    telephony_provider: str = _env("TELEPHONY_PROVIDER", "local")  # local | twilio
+    telephony_provider: str = _env("TELEPHONY_PROVIDER", "local")  # local | twilio | exotel
     twilio_account_sid: str = _env("TWILIO_ACCOUNT_SID", "")
     twilio_auth_token: str = _env("TWILIO_AUTH_TOKEN", "")
     twilio_from_number: str = _env("TWILIO_FROM_NUMBER", "")
+
+    # Exotel (India-focused telephony). "sid" here is the Exotel account SID
+    # (the path segment in your API URL), auth is API Key + API Token (Basic
+    # Auth), and caller_id is your ExoPhone (virtual number calls go out from).
+    # Some accounts sit on region subdomains other than api.exotel.com.
+    exotel_sid: str = _env("EXOTEL_SID", "")
+    exotel_api_key: str = _env("EXOTEL_API_KEY", "")
+    exotel_api_token: str = _env("EXOTEL_API_TOKEN", "")
+    exotel_caller_id: str = _env("EXOTEL_CALLER_ID", "")
+    exotel_subdomain: str = _env("EXOTEL_SUBDOMAIN", "api.exotel.com")
+    # Exotel doesn't sign webhooks like Twilio does; we protect our own
+    # answer/status callback URLs with a shared secret query param instead.
+    exotel_webhook_secret: str = _env("EXOTEL_WEBHOOK_SECRET", "")
 
     # Automatic follow-up scheduler
     scheduler_enabled: bool = _env("SCHEDULER_ENABLED", "1") == "1"

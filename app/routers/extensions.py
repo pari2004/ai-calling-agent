@@ -322,16 +322,21 @@ def voice_turn_taking(payload: dict) -> dict:
                                      payload.get("partial_text", ""))}}
 
 
-# ---- telephony: outbound dial (real Twilio when configured) --------------
+# ---- telephony: outbound dial (real Twilio/Exotel when configured) -------
 @router.post("/v1/telephony/dial")
 def dial(payload: dict) -> dict:
-    from ..telephony.twilio_voice import voice
+    from ..config import settings
     call_id = payload.get("call_id", "")
     to = payload.get("to", "")
     if not to:
         return {"ok": False, "error": "missing_to"}
-    res = voice.dial(to, call_id, amd=payload.get("amd", True),
-                     record=payload.get("record"))
+    if settings.telephony_provider == "exotel":
+        from ..telephony.exotel_voice import voice
+        res = voice.dial(to, call_id, record=payload.get("record"))
+    else:
+        from ..telephony.twilio_voice import voice
+        res = voice.dial(to, call_id, amd=payload.get("amd", True),
+                         record=payload.get("record"))
     return {"ok": res.get("status") != "failed", "data": res}
 
 

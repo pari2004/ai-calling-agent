@@ -8,13 +8,18 @@ from ..config import settings
 from ..db import get_db
 from ..observability.logging import log
 from ..realtime.pipeline import RealtimeCallPipeline, make_deepgram_stream
-from ..security.webhooks import verify_twilio
+from ..security.webhooks import verify_exotel, verify_twilio
+from ..telephony import exotel_voice
 from ..telephony.twilio_voice import answer_twiml, parse_status, say_twiml
 
 # These endpoints are called by Twilio, which cannot present our API key, so they
 # are NOT behind bearer auth. They are authenticated by Twilio's request
 # signature instead (HMAC over the exact URL + params with the auth token).
 router = APIRouter(prefix="/v1/telephony/twilio", tags=["twilio"])
+
+# Exotel callbacks: no Twilio-style request signing, so these are protected by
+# a `?sig=` shared secret instead (see security/webhooks.verify_exotel).
+exotel_router = APIRouter(prefix="/v1/telephony/exotel", tags=["exotel"])
 
 
 async def _verify(request: Request) -> dict:
@@ -125,3 +130,57 @@ async def media(websocket: WebSocket, call_id: str) -> None:
         pass
     finally:
         await pipeline.drain()
+
+
+# ---------------------------------------------------------------------------
+# Exotel — non-streaming Gather flow (see app/telephony/exotel_voice.py)
+# ---------------------------------------------------------------------------
+
+async def _verify_exotel(request: Request) -> dict:
+    form = dict((await request.form()).items())
+    token = request.query_params.get("sig", "")
+    if not verify_exotel(token):
+        raise HTTPException(status_code=403, detail="invalid_exotel_signature")
+    return form
+
+
+def _exoml(xml: str) -> Response:
+    return Response(content=xml, media_type="application/xml")
+
+
+@exotel_router.post("/answer/{call_id}")
+async def exotel_answer(call_id: str, request: Request, db: Session = Depends(get_db)) -> Response:
+    await _verify_exotel(request)
+    opening = "Hello, thanks for taking the call."
+    try:
+        from ..service import load_runtime
+        rt = load_runtime(db, call_id)
+        if rt and rt.turns:
+            opening = rt.turns[0].agent_text or opening
+    except Exception:
+        pass
+    return _exoml(exotel_voice.answer_exoml(opening_line=opening, call_id=call_id))
+
+
+@exotel_router.post("/gather/{call_id}")
+async def exotel_gather(call_id: str, request: Request, db: Session = Depends(get_db)) -> Response:
+    form = await _verify_exotel(request)
+    speech = form.get("SpeechResult") or form.get("speech_result", "")
+    from ..service import load_runtime, save_call_state
+    rt = load_runtime(db, call_id)
+    if not rt:
+        return _exoml(exotel_voice.say_exoml("Sorry, this call has ended.", hangup=True))
+    turn = rt.handle(speech)
+    save_call_state(db, rt, rt.lead["id"], "", active=not turn.ended)
+    db.commit()
+    if turn.ended:
+        return _exoml(exotel_voice.say_exoml(turn.agent_text, hangup=True))
+    return _exoml(exotel_voice.answer_exoml(opening_line=turn.agent_text, call_id=call_id))
+
+
+@exotel_router.post("/status")
+async def exotel_status(request: Request) -> dict:
+    form = await _verify_exotel(request)
+    parsed = exotel_voice.parse_status(form)
+    log.info("exotel_status", extra={"path": "/v1/telephony/exotel/status"})
+    return {"ok": True, "data": parsed}
